@@ -736,10 +736,14 @@ fn handle_insert_calendar(app: &mut App, key: KeyEvent) {
 
 fn handle_insert_rec_builder(app: &mut App, key: KeyEvent) {
     match key.code {
-        KeyCode::Char('h') | KeyCode::Left => app.recurrence_focus(-1),
-        KeyCode::Char('l') | KeyCode::Right => app.recurrence_focus(1),
-        KeyCode::Char('j') | KeyCode::Down => app.recurrence_focus(1),
-        KeyCode::Char('k') | KeyCode::Up => app.recurrence_focus(-1),
+        // Horizontal keys change the focused field's *value*: both the unit
+        // and the mode render as horizontal segmented controls, so Left/Right
+        // moving along them is the affordance the layout already suggests.
+        KeyCode::Char('h') | KeyCode::Left => app.recurrence_adjust(-1),
+        KeyCode::Char('l') | KeyCode::Right => app.recurrence_adjust(1),
+        // Vertical keys (and Tab) move *between* fields.
+        KeyCode::Char('j') | KeyCode::Down | KeyCode::Tab => app.recurrence_focus(1),
+        KeyCode::Char('k') | KeyCode::Up | KeyCode::BackTab => app.recurrence_focus(-1),
         // `=` is the unshifted `+` on US keyboards — accept both so users
         // don't have to chord Shift to bump the interval.
         KeyCode::Char('+') | KeyCode::Char('=') => app.recurrence_adjust(1),
@@ -1710,6 +1714,60 @@ mod tests {
     fn capital_w_toggles_week_start() {
         let mut app = build_app();
         assert_eq!(resolve(&mut app, key('W')), Some(Action::ChangeWeekStart));
+    }
+
+    #[test]
+    fn rec_builder_hl_changes_value_and_jk_moves_focus() {
+        use tuxedo::app::BuilderField;
+
+        fn code(c: KeyCode) -> KeyEvent {
+            KeyEvent::new(c, KeyModifiers::NONE)
+        }
+
+        // Regression: h/l/j/k all called `recurrence_focus`, so no navigation
+        // key could change a field's value — only `+`/`-` did, and the hint
+        // advertising them was clipped off the bottom of the popup.
+        let mut app = build_app();
+        app.open_recurrence_builder();
+        assert_eq!(
+            app.recurrence_state().expect("builder open").field,
+            BuilderField::Interval
+        );
+
+        // Horizontal keys change the value and leave focus put.
+        handle_insert_rec_builder(&mut app, key('l'));
+        let s = app.recurrence_state().expect("builder open");
+        assert_eq!(s.field, BuilderField::Interval, "h/l must not move focus");
+        assert_eq!(s.interval, 2, "l must increment the interval");
+        handle_insert_rec_builder(&mut app, code(KeyCode::Left));
+        assert_eq!(app.recurrence_state().expect("builder open").interval, 1);
+
+        // Vertical keys move focus and leave the value put.
+        handle_insert_rec_builder(&mut app, key('j'));
+        let s = app.recurrence_state().expect("builder open");
+        assert_eq!(s.field, BuilderField::Unit, "j must move focus");
+        assert_eq!(s.interval, 1, "j must not change the interval");
+
+        // With Unit focused, horizontal now cycles the unit.
+        let before = app.recurrence_state().expect("builder open").unit;
+        handle_insert_rec_builder(&mut app, key('l'));
+        assert_ne!(
+            app.recurrence_state().expect("builder open").unit,
+            before,
+            "l must cycle the unit"
+        );
+
+        // Tab / k also move focus.
+        handle_insert_rec_builder(&mut app, code(KeyCode::Tab));
+        assert_eq!(
+            app.recurrence_state().expect("builder open").field,
+            BuilderField::Mode
+        );
+        handle_insert_rec_builder(&mut app, key('k'));
+        assert_eq!(
+            app.recurrence_state().expect("builder open").field,
+            BuilderField::Unit
+        );
     }
 
     #[test]

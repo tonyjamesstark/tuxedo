@@ -587,6 +587,24 @@ task; `o` only opens an existing linked note.
 notes_dir = ~/notes
 ```
 
+### Recurrence builder
+
+Typing `rec:` in the create/edit dialog — or picking `/rec` from the slash
+menu — opens the **↻ REPEAT** builder over the dialog. `j`/`k` (or `Tab`)
+move between the interval, unit, and mode fields; `h`/`l` (or `+`/`-`) change
+the focused field's value; `Enter` writes the `rec:` token and `Esc` cancels.
+
+To skip the builder and type recurrence values by hand, set:
+
+```toml
+recurrence_builder = false
+```
+
+`rec:` then stays plain text, and `/rec` inserts a bare `rec:` key for you to
+complete. The setting is config-only (no in-app toggle) and hot-reloads like
+every other field. Other pickers are unaffected — `due:` and `t:` still open
+the calendar.
+
 ### Hiding `key:value` tags
 
 Some `key:value` extensions are for machines, not eyes — e.g. a `uid:` you
