@@ -10,7 +10,7 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, Ke
 
 use std::io::Write;
 
-use tuxedo::action::Action;
+use tuxedo::action::{Action, RecAction};
 use tuxedo::app::{AddOutcome, App, CalendarTarget, DialogInputMode, Mode, OverlayKind, View};
 use tuxedo::cli;
 use tuxedo::config::Config;
@@ -324,7 +324,7 @@ fn handle_key(app: &mut App, key: KeyEvent, keybinds: &KeyBindings) {
         return;
     }
     match app.mode {
-        Mode::Insert => handle_insert(app, key),
+        Mode::Insert => handle_insert(app, key, keybinds),
         Mode::Search => handle_search(app, key),
         Mode::Help => handle_help(app, key),
         Mode::Settings => handle_settings(app, key),
@@ -574,7 +574,7 @@ fn handle_insert_normal(app: &mut App, key: KeyEvent) {
     }
 }
 
-fn handle_insert(app: &mut App, key: KeyEvent) {
+fn handle_insert(app: &mut App, key: KeyEvent, keybinds: &KeyBindings) {
     if app.draft.input_mode() == DialogInputMode::Normal {
         handle_insert_normal(app, key);
         return;
@@ -591,7 +591,7 @@ fn handle_insert(app: &mut App, key: KeyEvent) {
             return;
         }
         Some(OverlayKind::RecurrenceBuilder) => {
-            handle_insert_rec_builder(app, key);
+            handle_insert_rec_builder(app, key, keybinds);
             return;
         }
         Some(OverlayKind::PriorityChooser) => {
@@ -734,23 +734,41 @@ fn handle_insert_calendar(app: &mut App, key: KeyEvent) {
     }
 }
 
-fn handle_insert_rec_builder(app: &mut App, key: KeyEvent) {
-    match key.code {
+fn handle_insert_rec_builder(app: &mut App, key: KeyEvent, keybinds: &KeyBindings) {
+    // Custom `[recurrence]` bindings win over the built-ins, matching how
+    // `[normal]` is layered in `resolve_normal_key`.
+    if let Some(action) = keybinds.resolve_recurrence(key) {
+        apply_rec_action(app, action);
+        return;
+    }
+    let action = match key.code {
         // Horizontal keys change the focused field's *value*: both the unit
         // and the mode render as horizontal segmented controls, so Left/Right
         // moving along them is the affordance the layout already suggests.
-        KeyCode::Char('h') | KeyCode::Left => app.recurrence_adjust(-1),
-        KeyCode::Char('l') | KeyCode::Right => app.recurrence_adjust(1),
+        KeyCode::Char('h') | KeyCode::Left => RecAction::ValuePrev,
+        KeyCode::Char('l') | KeyCode::Right => RecAction::ValueNext,
         // Vertical keys (and Tab) move *between* fields.
-        KeyCode::Char('j') | KeyCode::Down | KeyCode::Tab => app.recurrence_focus(1),
-        KeyCode::Char('k') | KeyCode::Up | KeyCode::BackTab => app.recurrence_focus(-1),
+        KeyCode::Char('j') | KeyCode::Down | KeyCode::Tab => RecAction::FocusNext,
+        KeyCode::Char('k') | KeyCode::Up | KeyCode::BackTab => RecAction::FocusPrev,
         // `=` is the unshifted `+` on US keyboards — accept both so users
         // don't have to chord Shift to bump the interval.
-        KeyCode::Char('+') | KeyCode::Char('=') => app.recurrence_adjust(1),
-        KeyCode::Char('-') | KeyCode::Char('_') => app.recurrence_adjust(-1),
-        KeyCode::Enter => app.recurrence_accept(),
-        KeyCode::Esc => app.recurrence_cancel(),
-        _ => {}
+        KeyCode::Char('+') | KeyCode::Char('=') => RecAction::ValueNext,
+        KeyCode::Char('-') | KeyCode::Char('_') => RecAction::ValuePrev,
+        KeyCode::Enter => RecAction::Accept,
+        KeyCode::Esc => RecAction::Cancel,
+        _ => return,
+    };
+    apply_rec_action(app, action);
+}
+
+fn apply_rec_action(app: &mut App, action: RecAction) {
+    match action {
+        RecAction::FocusNext => app.recurrence_focus(1),
+        RecAction::FocusPrev => app.recurrence_focus(-1),
+        RecAction::ValueNext => app.recurrence_adjust(1),
+        RecAction::ValuePrev => app.recurrence_adjust(-1),
+        RecAction::Accept => app.recurrence_accept(),
+        RecAction::Cancel => app.recurrence_cancel(),
     }
 }
 
@@ -1727,6 +1745,7 @@ mod tests {
         // Regression: h/l/j/k all called `recurrence_focus`, so no navigation
         // key could change a field's value — only `+`/`-` did, and the hint
         // advertising them was clipped off the bottom of the popup.
+        let binds = KeyBindings::default();
         let mut app = build_app();
         app.open_recurrence_builder();
         assert_eq!(
@@ -1735,22 +1754,22 @@ mod tests {
         );
 
         // Horizontal keys change the value and leave focus put.
-        handle_insert_rec_builder(&mut app, key('l'));
+        handle_insert_rec_builder(&mut app, key('l'), &binds);
         let s = app.recurrence_state().expect("builder open");
         assert_eq!(s.field, BuilderField::Interval, "h/l must not move focus");
         assert_eq!(s.interval, 2, "l must increment the interval");
-        handle_insert_rec_builder(&mut app, code(KeyCode::Left));
+        handle_insert_rec_builder(&mut app, code(KeyCode::Left), &binds);
         assert_eq!(app.recurrence_state().expect("builder open").interval, 1);
 
         // Vertical keys move focus and leave the value put.
-        handle_insert_rec_builder(&mut app, key('j'));
+        handle_insert_rec_builder(&mut app, key('j'), &binds);
         let s = app.recurrence_state().expect("builder open");
         assert_eq!(s.field, BuilderField::Unit, "j must move focus");
         assert_eq!(s.interval, 1, "j must not change the interval");
 
         // With Unit focused, horizontal now cycles the unit.
         let before = app.recurrence_state().expect("builder open").unit;
-        handle_insert_rec_builder(&mut app, key('l'));
+        handle_insert_rec_builder(&mut app, key('l'), &binds);
         assert_ne!(
             app.recurrence_state().expect("builder open").unit,
             before,
@@ -1758,15 +1777,38 @@ mod tests {
         );
 
         // Tab / k also move focus.
-        handle_insert_rec_builder(&mut app, code(KeyCode::Tab));
+        handle_insert_rec_builder(&mut app, code(KeyCode::Tab), &binds);
         assert_eq!(
             app.recurrence_state().expect("builder open").field,
             BuilderField::Mode
         );
-        handle_insert_rec_builder(&mut app, key('k'));
+        handle_insert_rec_builder(&mut app, key('k'), &binds);
         assert_eq!(
             app.recurrence_state().expect("builder open").field,
             BuilderField::Unit
+        );
+    }
+
+    #[test]
+    fn rec_builder_custom_binding_wins_over_builtin() {
+        use tuxedo::app::BuilderField;
+
+        // `[recurrence]` swaps the built-in meaning of `l`: it should move
+        // focus rather than change the value, proving custom bindings are
+        // consulted before the defaults.
+        let binds = KeyBindings::parse("[recurrence]\nfocus_next = \"l\"\n");
+        let mut app = build_app();
+        app.open_recurrence_builder();
+        handle_insert_rec_builder(&mut app, key('l'), &binds);
+        let s = app.recurrence_state().expect("builder open");
+        assert_eq!(s.field, BuilderField::Unit);
+        assert_eq!(s.interval, 1, "rebound l must not touch the interval");
+
+        // Keys the user did not rebind keep their built-in behavior.
+        handle_insert_rec_builder(&mut app, key('k'), &binds);
+        assert_eq!(
+            app.recurrence_state().expect("builder open").field,
+            BuilderField::Interval
         );
     }
 
@@ -1840,7 +1882,7 @@ mod tests {
         app.draft_clear();
         app.draft_insert_char('a');
         app.draft_insert_char('b');
-        handle_insert(&mut app, ctrl('h'));
+        handle_insert(&mut app, ctrl('h'), &KeyBindings::default());
         assert_eq!(app.draft.text(), "a");
     }
 

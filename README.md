@@ -338,6 +338,26 @@ palette where possible: `toggle_complete`, `pick_project`,
 chords like `ZZ`, modifier forms like `Ctrl-n` / `Alt-x`, named keys like
 `Esc`, `Enter`, `Tab`, arrows, `Page-Up`, `Page-Down`, or `F1` through `F24`.
 
+### Recurrence builder keys
+
+The **↻ REPEAT** overlay owns the keyboard while it is open, so its motions
+live in their own `[recurrence]` table and can reuse letters that mean
+something else in normal mode:
+
+```toml
+[recurrence]
+focus_next = ["j", "Down", "Tab"]        # move between interval / unit / mode
+focus_prev = ["k", "Up", "Shift-Tab"]
+value_next = ["l", "Right", "+", "="]    # change the focused field's value
+value_prev = ["h", "Left", "-", "_"]
+accept     = "Enter"                     # write the rec: token
+cancel     = "Esc"
+```
+
+`next_field` / `prev_field` / `increase` / `decrease` / `save` are accepted as
+aliases. Two-key chords are not — the overlay has no leader state to arm, so a
+chord here is ignored rather than bound to a key that could never fire.
+
 ### Navigation
 
 | Key | Action |
