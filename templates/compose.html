@@ -122,7 +122,7 @@
     .cell-empty-placeholder strong { color: #555; display: block; }
   </style>
 </head>
-<body data-for-push="{{ '1' if for_push else '0' }}" data-theme="{{ page.theme|default('light') }}" data-style="{{ page.style|default('standard') }}"{% if page.font %} style="--font-family: '{{ page.font_family }}', system-ui, sans-serif;"{% endif %}>
+<body data-for-push="{{ '1' if for_push else '0' }}" data-theme="{{ page.theme|default('light') }}" data-style="{{ page.style|default('standard') }}"{% if page.has_font_override %} style="--font-family: '{{ page.font_family }}', system-ui, sans-serif;"{% endif %}>
   <div class="panel">
     {% for cell in page.cells %}
     <div class="cell{% if cell.full_bleed %} full-bleed{% endif %}{% if not cell.plugin %} cell--empty{% endif %}"

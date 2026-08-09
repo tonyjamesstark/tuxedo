@@ -855,6 +855,15 @@ def _hydrate_page(
         **page_dict,
         "cells": cells_out,
         "font_family": page_font_family,
+        # True only when page_dict["font"] resolved to a real registered
+        # font. Distinct from truthiness of page_dict["font"] itself:
+        # callers like /_test/render pass the sentinel "default", which
+        # never resolves (no font is actually registered under that id),
+        # so page_font_family falls back to "system-ui". The template
+        # must key off *this*, not page.font, or it bakes that fallback
+        # into an inline body style that outranks the data-style rule's
+        # --font-family and permanently defeats the style picker.
+        "has_font_override": page_font is not None,
         "font_face_css": _font_face_css(registry.fonts),
         "corner_radius": corner_radius,
     }

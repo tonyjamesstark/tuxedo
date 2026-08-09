@@ -426,6 +426,10 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Fixed
 
+- **Page-level style font override no longer collapses to
+  system-ui.** `has_font_override` now keys off the resolved `Font`
+  object instead of a raw string truthiness check, so a page-level
+  font choice actually applies.
 - **Personal-data snapshots are isolated per paired Companion installation.**
   Independently identified household phones can publish Apple Reminders
   without replacing each other, each phone sees only its own sync status, and
